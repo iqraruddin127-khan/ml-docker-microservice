@@ -1,0 +1,6 @@
+data/
+mlruns/
+mlflow.db
+trained_model.pkl
+_pycache_/
+DockerInstaller.exe
