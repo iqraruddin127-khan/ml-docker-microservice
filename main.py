@@ -68,3 +68,28 @@ def predict(data: HouseFeatures):
         "predicted_price_pkr": predicted_val,
         "readable_price": format_pakistani_price(predicted_val)
     }
+@app.post("/monitor/drift")
+def check_data_drift(payload: dict):
+    import pandas as pd
+    from scipy.stats import ks_2samp
+    
+    # 1. Load the baseline file you just uploaded to GitHub
+    train_df = pd.read_csv("training_baseline.csv")
+    train_df.columns = train_df.columns.str.strip()
+    
+    # 2. Extract live predicted prices sent to this endpoint
+    live_prices = payload.get("live_prices", [])
+    if not live_prices:
+        return {"status": "error", "message": "No live prices provided"}
+        
+    # 3. Run the exact same K-S test we verified locally
+    statistic, p_value = ks_2samp(train_df['predicted_price_pkr'], live_prices)
+    
+    drift_detected = p_value < 0.05
+    return {
+        "status": "success",
+        "ks_statistic": round(statistic, 4),
+        "p_value": round(p_value, 4),
+        "drift_detected": drift_detected,
+        "system_status": "🛑 ALARM: Drift Detected!" if drift_detected else "✅ SYSTEM NORMAL"
+    }
