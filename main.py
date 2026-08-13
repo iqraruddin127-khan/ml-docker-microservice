@@ -80,14 +80,20 @@ def check_data_drift(payload: dict):
     # 2. Extract live predicted prices sent to this endpoint
     live_prices = payload.get("live_prices", [])
     if not live_prices:
-        return {"status": "error", "message": "No live prices provided"}
-        
-    # 3. Run the exact same K-S test we verified locally
+          # 3. Run the exact same K-S test we verified locally
     statistic, p_value = ks_2samp(train_df['predicted_price_pkr'], live_prices)
     
-    drift_detected = p_value < 0.05
+    # CAST TO NATIVE PYTHON BOOL: This prevents the FastAPI 500 error!
+    drift_detected = bool(p_value < 0.05) 
+    
     return {
         "status": "success",
+        "ks_statistic": round(float(statistic), 4),  # Safely cast statistic as well
+        "p_value": round(float(p_value), 4),          # Safely cast p_value as well
+        "drift_detected": drift_detected,
+        "system_status": "🛑 ALARM: Drift Detected!" if drift_detected else "✅ SYSTEM NORMAL"
+    }
+
         "ks_statistic": round(statistic, 4),
         "p_value": round(p_value, 4),
         "drift_detected": drift_detected,
