@@ -70,32 +70,49 @@ def predict(data: HouseFeatures):
     }
 @app.post("/monitor/drift")
 def check_data_drift(payload: dict):
+    import os
     import pandas as pd
     from scipy.stats import ks_2samp
-    
-    # 1. Load the baseline file you just uploaded to GitHub
-    train_df = pd.read_csv("training_baseline.csv")
-    train_df.columns = train_df.columns.str.strip()
-    
-    # 2. Extract live predicted prices sent to this endpoint
-    live_prices = payload.get("live_prices", [])
-    if not live_prices:
-          # 3. Run the exact same K-S test we verified locally
-    statistic, p_value = ks_2samp(train_df['predicted_price_pkr'], live_prices)
-    
-    # CAST TO NATIVE PYTHON BOOL: This prevents the FastAPI 500 error!
-    drift_detected = bool(p_value < 0.05) 
-    
-    return {
-        "status": "success",
-        "ks_statistic": round(float(statistic), 4),  # Safely cast statistic as well
-        "p_value": round(float(p_value), 4),          # Safely cast p_value as well
-        "drift_detected": drift_detected,
-        "system_status": "🛑 ALARM: Drift Detected!" if drift_detected else "✅ SYSTEM NORMAL"
-    }
 
-        "ks_statistic": round(statistic, 4),
-        "p_value": round(p_value, 4),
-        "drift_detected": drift_detected,
-        "system_status": "🛑 ALARM: Drift Detected!" if drift_detected else "✅ SYSTEM NORMAL"
-    }
+    # 1. FAIL-SAFE FILE CHECK
+    if not os.path.exists("training_baseline.csv"):
+        return {
+            "status": "error", 
+            "message": "Critical Error: 'training_baseline.csv' was not found on the server environment directory."
+        }
+
+    try:
+        train_df = pd.read_csv("training_baseline.csv")
+        train_df.columns = train_df.columns.str.strip()
+    except Exception as e:
+        return {"status": "error", "message": f"Failed to read baseline CSV file: {str(e)}"}
+
+    # 2. EXTRACT LIVE PREDICTED PRICES
+    live_prices = payload.get("live_prices", [])
+    if not live_prices or len(live_prices) == 0:
+        return {"status": "error", "message": "No live prices provided in the JSON body."}
+
+    # 3. SECURE CALCULATION INSIDE TRY-EXCEPT BLOCK
+    try:
+        baseline_series = train_df['predicted_price_pkr'].dropna().astype(float)
+        clean_live_prices = [float(x) for x in live_prices if x is not None]
+
+        if len(baseline_series) == 0 or len(clean_live_prices) == 0:
+            return {"status": "error", "message": "Calculation arrays are empty after data validation cleaning."}
+
+        statistic, p_value = ks_2samp(baseline_series, clean_live_prices)
+        drift_detected = bool(p_value < 0.05)
+        
+        return {
+            "status": "success",
+            "ks_statistic": round(float(statistic), 4),
+            "p_value": round(float(p_value), 4),
+            "drift_detected": drift_detected,
+            "system_status": "🛑 ALARM: Drift Detected!" if drift_detected else "✅ SYSTEM NORMAL"
+        }
+
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": f"Internal computation error during K-S calculation: {str(e)}"
+        }
